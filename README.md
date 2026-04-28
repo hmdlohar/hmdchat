@@ -10,6 +10,8 @@ Desktop-first local chat draft that runs as a Node.js process and serves a brows
 - file transfer between discovered devices
 - drag-and-drop file sending
 - delivery and read receipts
+- configurable received files folder
+- `Save as` action that moves file to another path
 - local inbox/history persisted to `.data/messages.json`
 - unread counters in the device list
 - browser UI that feels like a simple desktop messenger
@@ -82,7 +84,7 @@ PORT=33446 DATA_DIR=.data-b DEVICE_NAME=beta SEED_PEERS=127.0.0.1:33445 npm star
 - no encryption
 - no message deletion/editing
 - no background desktop wrapper yet
-- files are served directly from local uploads storage
+- file moves use path prompt, not native folder picker
 
 ## Next useful steps
 

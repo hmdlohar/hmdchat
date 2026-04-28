@@ -1,5 +1,6 @@
 const state = {
   self: null,
+  settings: null,
   peers: [],
   conversations: [],
   activePeerId: null,
@@ -13,6 +14,8 @@ const els = {
   selfId: document.querySelector("#self-id"),
   connectForm: document.querySelector("#connect-form"),
   connectInput: document.querySelector("#connect-input"),
+  storageForm: document.querySelector("#storage-form"),
+  storageInput: document.querySelector("#storage-input"),
   deviceList: document.querySelector("#device-list"),
   emptyState: document.querySelector("#empty-state"),
   chatView: document.querySelector("#chat-view"),
@@ -99,9 +102,11 @@ async function fetchJson(url, options) {
 async function loadState() {
   const payload = await fetchJson("/api/state");
   state.self = payload.self;
+  state.settings = payload.settings;
   state.peers = payload.peers;
   state.conversations = payload.conversations;
   renderSelf();
+  renderSettings();
   renderSidebar();
 }
 
@@ -136,6 +141,10 @@ function upsertConversationFromMessage(message) {
 function renderSelf() {
   els.selfName.textContent = state.self?.name || "This device";
   els.selfId.textContent = state.self?.id || "";
+}
+
+function renderSettings() {
+  els.storageInput.value = state.settings?.receivedFilesDir || "";
 }
 
 function renderSidebar() {
@@ -256,10 +265,44 @@ function renderMessages() {
     }
 
     if (message.kind === "file" && message.file) {
-      const href = `/uploads/${encodeURIComponent(message.file.storedName)}`;
+      const href = `/api/files/${encodeURIComponent(message.id)}`;
       const fileCard = document.createElement("div");
       fileCard.className = "file-card";
-      fileCard.innerHTML = `<a href="${href}" target="_blank" rel="noreferrer">${escapeHtml(message.file.originalName)}</a>`;
+      fileCard.innerHTML = `
+        <div class="file-card-header">
+          <a href="${href}" target="_blank" rel="noreferrer">${escapeHtml(message.file.originalName)}</a>
+          <span class="muted">${escapeHtml(message.direction === "incoming" ? "received" : "sent")}</span>
+        </div>
+        <div class="file-actions">
+          <button type="button" class="save-as-btn primary">Save as</button>
+          <button type="button" class="open-btn">Open</button>
+        </div>
+      `;
+
+      fileCard.querySelector(".open-btn").addEventListener("click", () => {
+        window.open(href, "_blank", "noreferrer");
+      });
+
+      fileCard.querySelector(".save-as-btn").addEventListener("click", async () => {
+        const destinationPath = window.prompt(
+          "Move file to path or folder",
+          message.file.originalName
+        );
+        if (!destinationPath) {
+          return;
+        }
+
+        try {
+          await fetchJson(`/api/files/${encodeURIComponent(message.id)}/move`, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ destinationPath })
+          });
+        } catch (error) {
+          window.alert(error.message);
+        }
+      });
+
       body.appendChild(fileCard);
     }
 
@@ -380,7 +423,34 @@ function bindConnectForm() {
   });
 }
 
+function bindStorageForm() {
+  els.storageForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const receivedFilesDir = els.storageInput.value.trim();
+    if (!receivedFilesDir) {
+      return;
+    }
+
+    try {
+      const payload = await fetchJson("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ receivedFilesDir })
+      });
+      state.settings = payload.settings;
+      renderSettings();
+    } catch (error) {
+      window.alert(error.message);
+    }
+  });
+}
+
 function bindDragAndDrop() {
+  const hasFiles = (event) => {
+    const types = event.dataTransfer?.types;
+    return Array.from(types || []).includes("Files");
+  };
+
   const activate = () => {
     if (!activePeer()) {
       return;
@@ -393,34 +463,48 @@ function bindDragAndDrop() {
     els.dropzone.classList.add("hidden");
   };
 
-  window.addEventListener("dragenter", (event) => {
-    if (!event.dataTransfer?.types?.includes("Files")) {
+  document.addEventListener("dragenter", (event) => {
+    if (!hasFiles(event)) {
       return;
     }
+    event.preventDefault();
     state.dragDepth += 1;
     activate();
   });
 
-  window.addEventListener("dragleave", () => {
+  document.addEventListener("dragleave", (event) => {
+    if (!hasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
     state.dragDepth = Math.max(0, state.dragDepth - 1);
     if (state.dragDepth === 0) {
       deactivate();
     }
   });
 
-  window.addEventListener("dragover", (event) => {
-    if (!event.dataTransfer?.types?.includes("Files")) {
+  document.addEventListener("dragover", (event) => {
+    if (!hasFiles(event)) {
       return;
     }
     event.preventDefault();
+    if (activePeer()) {
+      els.dropzone.classList.remove("hidden");
+    }
   });
 
-  window.addEventListener("drop", async (event) => {
+  document.addEventListener("drop", async (event) => {
+    if (!hasFiles(event)) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+
     if (!event.dataTransfer?.files?.length) {
+      deactivate();
       return;
     }
 
-    event.preventDefault();
     deactivate();
 
     const peer = activePeer();
@@ -450,9 +534,11 @@ function connectSocket() {
 
     if (data.type === "state") {
       state.self = data.payload.self;
+      state.settings = data.payload.settings;
       state.peers = data.payload.peers;
       state.conversations = data.payload.conversations;
       renderSelf();
+      renderSettings();
       renderSidebar();
       renderChatShell();
       return;
@@ -478,6 +564,7 @@ function connectSocket() {
 
 bindComposer();
 bindConnectForm();
+bindStorageForm();
 bindDragAndDrop();
 await loadState();
 connectSocket();

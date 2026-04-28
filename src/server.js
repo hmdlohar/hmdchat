@@ -14,13 +14,13 @@ const __dirname = path.dirname(__filename);
 const rootDir = path.resolve(__dirname, "..");
 const dataDir = process.env.DATA_DIR || path.join(rootDir, ".data");
 const uploadsDir = path.join(dataDir, "uploads");
+const settingsFile = path.join(dataDir, "settings.json");
 const dbFile = path.join(dataDir, "messages.json");
 const publicDir = path.join(rootDir, "public");
 
 await fsp.mkdir(uploadsDir, { recursive: true });
 
 const port = Number(process.env.PORT || 33445);
-const deviceId = process.env.DEVICE_ID || `${os.hostname()}-${Math.random().toString(36).slice(2, 8)}`;
 const deviceName = process.env.DEVICE_NAME || os.hostname();
 const serviceInstanceName = process.env.SERVICE_INSTANCE_NAME || `${deviceName}-${port}`;
 const seedPeers = (process.env.SEED_PEERS || "")
@@ -29,8 +29,14 @@ const seedPeers = (process.env.SEED_PEERS || "")
   .filter(Boolean);
 
 const app = express();
-const upload = multer({ dest: uploadsDir });
 const localAddresses = getLocalIpCandidates();
+const defaultSettings = {
+  deviceId: process.env.DEVICE_ID || null,
+  deviceName,
+  receivedFilesDir: path.resolve(process.env.RECEIVED_FILES_DIR || path.join(dataDir, "received"))
+};
+
+await fsp.mkdir(defaultSettings.receivedFilesDir, { recursive: true });
 
 app.use(express.json({ limit: "2mb" }));
 app.use(express.urlencoded({ extended: true }));
@@ -39,14 +45,22 @@ app.use(express.static(publicDir));
 
 const state = {
   self: {
-    id: deviceId,
-    name: deviceName,
+    id: "",
+    name: "",
     port,
     addresses: ["127.0.0.1", ...localAddresses]
   },
+  settings: await loadSettings(),
   peers: new Map(),
   messages: await loadMessages()
 };
+
+state.self.id = state.settings.deviceId;
+state.self.name = state.settings.deviceName || deviceName;
+
+await ensureReceivedFilesDir();
+
+const upload = multer({ dest: uploadsDir });
 
 function nowIso() {
   return new Date().toISOString();
@@ -105,6 +119,34 @@ async function loadMessages() {
   }
 }
 
+async function loadSettings() {
+  try {
+    const raw = await fsp.readFile(settingsFile, "utf8");
+    const parsed = JSON.parse(raw);
+    const merged = {
+      ...defaultSettings,
+      deviceId: parsed.deviceId || defaultSettings.deviceId || createDeviceId(),
+      deviceName: parsed.deviceName || defaultSettings.deviceName,
+      ...parsed,
+      receivedFilesDir: parsed.receivedFilesDir || defaultSettings.receivedFilesDir
+    };
+    if (!parsed.deviceId) {
+      await saveSettings(merged);
+    }
+    return merged;
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      const created = {
+        ...defaultSettings,
+        deviceId: defaultSettings.deviceId || createDeviceId()
+      };
+      await saveSettings(created);
+      return created;
+    }
+    throw error;
+  }
+}
+
 let writeQueue = Promise.resolve();
 
 function saveMessages() {
@@ -114,8 +156,40 @@ function saveMessages() {
   return writeQueue;
 }
 
+function saveSettings(settings) {
+  return fsp.writeFile(settingsFile, JSON.stringify(settings, null, 2), "utf8");
+}
+
+function createDeviceId() {
+  return `${os.hostname()}-${crypto.randomUUID().slice(0, 8)}`;
+}
+
+async function ensureReceivedFilesDir() {
+  await fsp.mkdir(state.settings.receivedFilesDir, { recursive: true });
+}
+
+function parseIncomingFile(req, res) {
+  return new Promise((resolve, reject) => {
+    multer({ dest: state.settings.receivedFilesDir }).single("file")(req, res, (error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
 function sanitizeFilename(name) {
   return name.replace(/[^a-zA-Z0-9._-]/g, "_");
+}
+
+function filePathForMessage(message) {
+  return message?.file?.path || null;
+}
+
+function serializeMessage(message) {
+  return message;
 }
 
 function serializePeer(peer) {
@@ -180,6 +254,7 @@ function broadcast(type, payload) {
 function broadcastState() {
   broadcast("state", {
     self: state.self,
+    settings: state.settings,
     peers: serializePeers(),
     conversations: getConversations()
   });
@@ -375,6 +450,7 @@ app.get("/api/hello", async (_req, res) => {
 app.get("/api/state", async (_req, res) => {
   res.json({
     self: state.self,
+    settings: state.settings,
     peers: serializePeers(),
     conversations: getConversations()
   });
@@ -385,6 +461,29 @@ app.get("/api/messages/:peerId", async (req, res) => {
     peerId: req.params.peerId,
     messages: getConversationMessages(req.params.peerId)
   });
+});
+
+app.get("/api/settings", async (_req, res) => {
+  res.json(state.settings);
+});
+
+app.put("/api/settings", async (req, res) => {
+  const receivedFilesDir = String(req.body.receivedFilesDir || "").trim();
+  if (!receivedFilesDir) {
+    res.status(400).json({ error: "receivedFilesDir is required." });
+    return;
+  }
+
+  const nextSettings = {
+    ...state.settings,
+    receivedFilesDir: path.resolve(receivedFilesDir)
+  };
+
+  await fsp.mkdir(nextSettings.receivedFilesDir, { recursive: true });
+  await saveSettings(nextSettings);
+  state.settings = nextSettings;
+
+  res.json({ ok: true, settings: state.settings });
 });
 
 app.post("/api/peers/connect", async (req, res) => {
@@ -557,7 +656,14 @@ app.post("/api/inbox/text", async (req, res) => {
   res.json({ ok: true, deliveredAt });
 });
 
-app.post("/api/inbox/file", upload.single("file"), async (req, res) => {
+app.post("/api/inbox/file", async (req, res) => {
+  try {
+    await parseIncomingFile(req, res);
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+    return;
+  }
+
   if (!req.file) {
     res.status(400).json({ error: "File is required." });
     return;
@@ -566,7 +672,7 @@ app.post("/api/inbox/file", upload.single("file"), async (req, res) => {
   const senderId = String(req.body.senderId || "");
   const senderName = String(req.body.senderName || senderId);
   const safeName = sanitizeFilename(req.file.originalname || "received.bin");
-  const finalPath = path.join(uploadsDir, `${Date.now()}-${safeName}`);
+  const finalPath = path.join(state.settings.receivedFilesDir, `${Date.now()}-${safeName}`);
   await fsp.rename(req.file.path, finalPath);
 
   upsertPeer({
@@ -603,6 +709,62 @@ app.post("/api/inbox/file", upload.single("file"), async (req, res) => {
   res.json({ ok: true, deliveredAt });
 });
 
+app.get("/api/files/:messageId", async (req, res) => {
+  const message = state.messages.find((item) => item.id === req.params.messageId);
+  if (!message?.file?.path) {
+    res.status(404).json({ error: "File not found." });
+    return;
+  }
+
+  res.download(message.file.path, message.file.originalName || path.basename(message.file.path));
+});
+
+app.post("/api/files/:messageId/move", async (req, res) => {
+  const message = state.messages.find((item) => item.id === req.params.messageId);
+  if (!message?.file?.path) {
+    res.status(404).json({ error: "File not found." });
+    return;
+  }
+
+  const targetInput = String(req.body.destinationPath || "").trim();
+  if (!targetInput) {
+    res.status(400).json({ error: "destinationPath is required." });
+    return;
+  }
+
+  const currentPath = message.file.path;
+  const resolvedTarget = path.resolve(targetInput);
+  let finalTarget = resolvedTarget;
+
+  try {
+    const stat = await fsp.stat(resolvedTarget);
+    if (stat.isDirectory()) {
+      finalTarget = path.join(resolvedTarget, message.file.originalName || path.basename(currentPath));
+    }
+  } catch (_error) {
+  }
+
+  if (path.resolve(currentPath) === path.resolve(finalTarget)) {
+    res.json({ ok: true, file: message.file });
+    return;
+  }
+
+  await fsp.mkdir(path.dirname(finalTarget), { recursive: true });
+  await fsp.rename(currentPath, finalTarget);
+
+  message.file.path = finalTarget;
+  message.file.storedName = path.basename(finalTarget);
+  await saveMessages();
+
+  broadcast("message", message);
+  broadcastState();
+
+  res.json({
+    ok: true,
+    file: message.file
+  });
+});
+
 app.post("/api/receipts/read", async (req, res) => {
   const messageIds = Array.isArray(req.body.messageIds) ? req.body.messageIds : [];
   const readAt = String(req.body.readAt || nowIso());
@@ -626,6 +788,7 @@ wss.on("connection", (socket) => {
       type: "state",
       payload: {
         self: state.self,
+        settings: state.settings,
         peers: serializePeers(),
         conversations: getConversations()
       }
@@ -642,15 +805,15 @@ bonjour.publish({
   port,
   host: getPreferredAddress(),
   txt: {
-    id: deviceId,
-    name: deviceName,
+    id: state.self.id,
+    name: state.self.name,
     addresses: JSON.stringify(state.self.addresses)
   }
 });
 
 const browser = bonjour.find({ type: "hmdchat", protocol: "tcp" }, (service) => {
   const peerId = service.txt?.id;
-  if (!peerId || peerId === deviceId) {
+  if (!peerId || peerId === state.self.id) {
     return;
   }
 
@@ -696,14 +859,41 @@ setTimeout(() => {
   warmManualPeers();
 }, 400);
 
+let shuttingDown = false;
+
 async function shutdown() {
-  browser.stop();
-  bonjour.unpublishAll(() => {
-    bonjour.destroy();
-  });
-  wss.close();
-  server.close(() => process.exit(0));
+  if (shuttingDown) {
+    return;
+  }
+
+  shuttingDown = true;
+
+  const forceExit = setTimeout(() => {
+    process.exit(0);
+  }, 2000);
+  forceExit.unref();
+
+  try {
+    for (const client of wss.clients) {
+      client.terminate();
+    }
+
+    browser.stop();
+
+    await new Promise((resolve) => {
+      bonjour.unpublishAll(() => {
+        bonjour.destroy();
+        resolve();
+      });
+    });
+
+    await new Promise((resolve) => wss.close(resolve));
+    await new Promise((resolve) => server.close(resolve));
+  } finally {
+    clearTimeout(forceExit);
+    process.exit(0);
+  }
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.once("SIGINT", shutdown);
+process.once("SIGTERM", shutdown);
