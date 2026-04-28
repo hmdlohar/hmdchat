@@ -18,15 +18,7 @@
             <div id="self-name">This device</div>
             <div id="self-id" class="muted"></div>
           </div>
-          <form id="connect-form" class="connect-form">
-            <input id="connect-input" type="text" placeholder="Connect host:port" autocomplete="off" />
-            <button type="submit">Connect</button>
-          </form>
-          <form id="storage-form" class="storage-form">
-            <label class="storage-label" for="storage-input">Received files folder</label>
-            <input id="storage-input" type="text" placeholder="/path/to/folder" autocomplete="off" />
-            <button type="submit">Save folder</button>
-          </form>
+          <button id="settings-open" class="settings-open" type="button">Settings</button>
         </div>
         <div id="device-list" class="device-list"></div>
       </aside>
@@ -60,6 +52,26 @@
           </form>
         </section>
       </main>
+    </div>
+
+    <div id="settings-modal" class="modal hidden" aria-hidden="true">
+      <div class="modal-backdrop" data-close-modal></div>
+      <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+        <div class="modal-header">
+          <h2 id="settings-title">Settings</h2>
+          <button id="settings-close" class="icon-button" type="button" aria-label="Close settings">×</button>
+        </div>
+        <form id="connect-form" class="connect-form">
+          <label class="storage-label" for="connect-input">Connect device</label>
+          <input id="connect-input" type="text" placeholder="host:port" autocomplete="off" />
+          <button type="submit">Connect</button>
+        </form>
+        <form id="storage-form" class="storage-form">
+          <label class="storage-label" for="storage-input">Received files folder</label>
+          <input id="storage-input" type="text" placeholder="/path/to/folder" autocomplete="off" />
+          <button type="submit">Save folder</button>
+        </form>
+      </div>
     </div>
 
     <template id="device-item-template">

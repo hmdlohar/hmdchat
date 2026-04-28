@@ -27,6 +27,7 @@ const seedPeers = (process.env.SEED_PEERS || "")
   .split(",")
   .map((item) => item.trim())
   .filter(Boolean);
+const peerHealthIntervalMs = Number(process.env.PEER_HEALTH_INTERVAL_MS || 3000);
 
 const app = express();
 const localAddresses = getLocalIpCandidates();
@@ -188,10 +189,6 @@ function filePathForMessage(message) {
   return message?.file?.path || null;
 }
 
-function serializeMessage(message) {
-  return message;
-}
-
 function serializePeer(peer) {
   return {
     id: peer.id,
@@ -299,6 +296,22 @@ function upsertPeer(peerInput) {
 
   state.peers.set(existing.id, existing);
   return existing;
+}
+
+function setPeerOnlineState(peerId, online) {
+  const peer = state.peers.get(peerId);
+  if (!peer) {
+    return false;
+  }
+
+  if (peer.online === online) {
+    return false;
+  }
+
+  peer.online = online;
+  peer.lastSeenAt = nowIso();
+  state.peers.set(peerId, peer);
+  return true;
 }
 
 async function markOutgoingDelivered(messageId, deliveredAt) {
@@ -441,9 +454,42 @@ async function sendReadReceipt(peerId, messageIds) {
   }
 }
 
+async function probePeerHealth(peer) {
+  try {
+    const response = await fetch(`http://${peer.host}:${peer.port}/health`, {
+      signal: AbortSignal.timeout(1500)
+    });
+
+    if (!response.ok) {
+      throw new Error(`Health check failed with ${response.status}`);
+    }
+
+    if (setPeerOnlineState(peer.id, true)) {
+      broadcastState();
+    }
+  } catch (_error) {
+    if (setPeerOnlineState(peer.id, false)) {
+      broadcastState();
+    }
+  }
+}
+
+async function probeAllPeers() {
+  const peers = [...state.peers.values()].filter((peer) => peer.host && peer.port);
+  await Promise.all(peers.map((peer) => probePeerHealth(peer)));
+}
+
 app.get("/api/hello", async (_req, res) => {
   res.json({
     self: state.self
+  });
+});
+
+app.get("/health", async (_req, res) => {
+  res.json({
+    ok: true,
+    port: state.self.port,
+    deviceId: state.self.id
   });
 });
 
@@ -765,6 +811,33 @@ app.post("/api/files/:messageId/move", async (req, res) => {
   });
 });
 
+app.post("/api/files/:messageId/cancel", async (req, res) => {
+  const message = state.messages.find((item) => item.id === req.params.messageId);
+  if (!message || message.direction !== "outgoing" || message.kind !== "file") {
+    res.status(404).json({ error: "Cancelable file not found." });
+    return;
+  }
+
+  if (message.deliveredAt) {
+    res.status(400).json({ error: "File already delivered." });
+    return;
+  }
+
+  if (message.file?.path) {
+    try {
+      await fsp.unlink(message.file.path);
+    } catch (_error) {
+    }
+  }
+
+  state.messages = state.messages.filter((item) => item.id !== message.id);
+  await saveMessages();
+  broadcastState();
+  broadcast("message", { id: message.id, peerId: message.peerId, deleted: true });
+
+  res.json({ ok: true });
+});
+
 app.post("/api/receipts/read", async (req, res) => {
   const messageIds = Array.isArray(req.body.messageIds) ? req.body.messageIds : [];
   const readAt = String(req.body.readAt || nowIso());
@@ -859,6 +932,10 @@ setTimeout(() => {
   warmManualPeers();
 }, 400);
 
+const peerHealthInterval = setInterval(() => {
+  probeAllPeers().catch(() => {});
+}, peerHealthIntervalMs);
+
 let shuttingDown = false;
 
 async function shutdown() {
@@ -874,6 +951,8 @@ async function shutdown() {
   forceExit.unref();
 
   try {
+    clearInterval(peerHealthInterval);
+
     for (const client of wss.clients) {
       client.terminate();
     }

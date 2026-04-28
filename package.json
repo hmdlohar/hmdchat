@@ -3,15 +3,64 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "electron/main.cjs",
+  "author": "hmd",
+  "license": "UNLICENSED",
+  "productName": "Hmd Chat",
   "description": "Local-first desktop chat draft with mDNS discovery, text, and file transfer.",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "desktop": "electron .",
+    "desktop:dev": "electron .",
+    "dist": "electron-builder",
+    "dist:linux": "electron-builder --linux deb",
+    "dist:win": "electron-builder --win nsis",
+    "pack": "electron-builder --dir"
   },
   "dependencies": {
     "bonjour-service": "^1.2.1",
     "express": "^4.21.2",
     "multer": "^1.4.5-lts.2",
     "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.hmd.hmdchat",
+    "productName": "Hmd Chat",
+    "asar": false,
+    "files": [
+      "electron/**/*",
+      "src/**/*",
+      "public/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "buildResources": "build"
+    },
+    "linux": {
+      "target": [
+        "deb"
+      ],
+      "category": "Network",
+      "icon": "build/icons"
+    },
+    "deb": {
+      "artifactName": "hmd-chat_${version}_${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icons/icon.ico",
+      "artifactName": "hmd-chat-setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

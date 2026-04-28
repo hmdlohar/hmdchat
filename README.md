@@ -45,6 +45,40 @@ Open:
 http://localhost:33445
 ```
 
+## Run in Electron
+
+Install Electron first:
+
+```bash
+npm install
+```
+
+Then start desktop shell:
+
+```bash
+npm run desktop
+```
+
+Electron starts local server, waits for `/health`, then loads `http://127.0.0.1:33445` in main window.
+
+## Build packages
+
+Add icons first:
+
+- `build/icons/icon.ico` for Windows
+- `build/icons/256x256.png` for Linux
+
+These can be generated from `assets/logo.png`.
+
+Then build:
+
+```bash
+npm run dist:linux
+npm run dist:win
+```
+
+Output goes to `dist/`.
+
 ## Run two local instances on one machine
 
 Use separate ports and data directories:
@@ -83,7 +117,7 @@ PORT=33446 DATA_DIR=.data-b DEVICE_NAME=beta SEED_PEERS=127.0.0.1:33445 npm star
 - no authentication
 - no encryption
 - no message deletion/editing
-- no background desktop wrapper yet
+- Electron shell is minimal host only
 - file moves use path prompt, not native folder picker
 
 ## Next useful steps

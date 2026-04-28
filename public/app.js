@@ -12,6 +12,9 @@ const state = {
 const els = {
   selfName: document.querySelector("#self-name"),
   selfId: document.querySelector("#self-id"),
+  settingsOpen: document.querySelector("#settings-open"),
+  settingsModal: document.querySelector("#settings-modal"),
+  settingsClose: document.querySelector("#settings-close"),
   connectForm: document.querySelector("#connect-form"),
   connectInput: document.querySelector("#connect-input"),
   storageForm: document.querySelector("#storage-form"),
@@ -62,6 +65,40 @@ function activePeer() {
   return state.peers.find((peer) => peer.id === state.activePeerId) || null;
 }
 
+function getChatFromUrl() {
+  return new URLSearchParams(window.location.search).get("chat");
+}
+
+function setChatInUrl(peerId) {
+  const url = new URL(window.location.href);
+  if (peerId) {
+    url.searchParams.set("chat", peerId);
+  } else {
+    url.searchParams.delete("chat");
+  }
+  history.pushState({ chat: peerId || null }, "", url);
+}
+
+async function syncChatFromUrl() {
+  const peerId = getChatFromUrl();
+  if (!peerId) {
+    state.activePeerId = null;
+    renderSidebar();
+    renderChatShell();
+    return;
+  }
+
+  const known = state.conversations.some((item) => item.peerId === peerId);
+  if (known) {
+    await selectPeer(peerId, { updateUrl: false });
+    return;
+  }
+
+  state.activePeerId = null;
+  renderSidebar();
+  renderChatShell();
+}
+
 function rememberMessage(message) {
   const list = state.messagesByPeer.get(message.peerId) || [];
   const index = list.findIndex((item) => item.id === message.id);
@@ -108,6 +145,7 @@ async function loadState() {
   renderSelf();
   renderSettings();
   renderSidebar();
+  await syncChatFromUrl();
 }
 
 async function loadMessages(peerId) {
@@ -145,6 +183,16 @@ function renderSelf() {
 
 function renderSettings() {
   els.storageInput.value = state.settings?.receivedFilesDir || "";
+}
+
+function openSettings() {
+  els.settingsModal.classList.remove("hidden");
+  els.settingsModal.setAttribute("aria-hidden", "false");
+}
+
+function closeSettings() {
+  els.settingsModal.classList.add("hidden");
+  els.settingsModal.setAttribute("aria-hidden", "true");
 }
 
 function renderSidebar() {
@@ -202,8 +250,11 @@ function renderSidebar() {
   }
 }
 
-async function selectPeer(peerId) {
+async function selectPeer(peerId, options = { updateUrl: true }) {
   state.activePeerId = peerId;
+  if (options.updateUrl) {
+    setChatInUrl(peerId);
+  }
   renderSidebar();
   renderChatShell();
 
@@ -268,40 +319,84 @@ function renderMessages() {
       const href = `/api/files/${encodeURIComponent(message.id)}`;
       const fileCard = document.createElement("div");
       fileCard.className = "file-card";
+      const actionsHtml =
+        message.direction === "incoming"
+          ? `
+            <div class="file-actions">
+              <button type="button" class="save-as-btn primary">Save as</button>
+              <button type="button" class="open-btn">Open</button>
+            </div>
+          `
+          : message.deliveredAt
+            ? `
+              <div class="file-actions">
+                <button type="button" class="open-btn">Open</button>
+              </div>
+            `
+            : `
+              <div class="file-actions">
+                <button type="button" class="cancel-btn danger">Cancel</button>
+              </div>
+            `;
+
       fileCard.innerHTML = `
         <div class="file-card-header">
           <a href="${href}" target="_blank" rel="noreferrer">${escapeHtml(message.file.originalName)}</a>
           <span class="muted">${escapeHtml(message.direction === "incoming" ? "received" : "sent")}</span>
         </div>
-        <div class="file-actions">
-          <button type="button" class="save-as-btn primary">Save as</button>
-          <button type="button" class="open-btn">Open</button>
-        </div>
+        ${actionsHtml}
       `;
 
-      fileCard.querySelector(".open-btn").addEventListener("click", () => {
-        window.open(href, "_blank", "noreferrer");
-      });
+      const openBtn = fileCard.querySelector(".open-btn");
+      if (openBtn) {
+        openBtn.addEventListener("click", () => {
+          window.open(href, "_blank", "noreferrer");
+        });
+      }
 
-      fileCard.querySelector(".save-as-btn").addEventListener("click", async () => {
-        const destinationPath = window.prompt(
-          "Move file to path or folder",
-          message.file.originalName
-        );
-        if (!destinationPath) {
-          return;
-        }
+      const saveAsBtn = fileCard.querySelector(".save-as-btn");
+      if (saveAsBtn) {
+        saveAsBtn.addEventListener("click", async () => {
+          const destinationPath = window.prompt(
+            "Move file to path or folder",
+            message.file.originalName
+          );
+          if (!destinationPath) {
+            return;
+          }
 
-        try {
-          await fetchJson(`/api/files/${encodeURIComponent(message.id)}/move`, {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ destinationPath })
-          });
-        } catch (error) {
-          window.alert(error.message);
-        }
-      });
+          try {
+            await fetchJson(`/api/files/${encodeURIComponent(message.id)}/move`, {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({ destinationPath })
+            });
+            renderMessages();
+          } catch (error) {
+            window.alert(error.message);
+          }
+        });
+      }
+
+      const cancelBtn = fileCard.querySelector(".cancel-btn");
+      if (cancelBtn) {
+        cancelBtn.addEventListener("click", async () => {
+          try {
+            await fetchJson(`/api/files/${encodeURIComponent(message.id)}/cancel`, {
+              method: "POST"
+            });
+            const list = state.messagesByPeer.get(message.peerId) || [];
+            state.messagesByPeer.set(
+              message.peerId,
+              list.filter((item) => item.id !== message.id)
+            );
+            renderMessages();
+            renderSidebar();
+          } catch (error) {
+            window.alert(error.message);
+          }
+        });
+      }
 
       body.appendChild(fileCard);
     }
@@ -563,8 +658,23 @@ function connectSocket() {
 }
 
 bindComposer();
+els.settingsOpen.addEventListener("click", openSettings);
+els.settingsClose.addEventListener("click", closeSettings);
+els.settingsModal.addEventListener("click", (event) => {
+  if (event.target?.matches("[data-close-modal]")) {
+    closeSettings();
+  }
+});
 bindConnectForm();
 bindStorageForm();
 bindDragAndDrop();
+window.addEventListener("popstate", async () => {
+  await syncChatFromUrl();
+});
+window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") {
+    closeSettings();
+  }
+});
 await loadState();
 connectSocket();
