@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>hmdchat</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <div>
+            <div class="eyebrow">Local Devices</div>
+            <h1>hmdchat</h1>
+          </div>
+          <div class="self-card">
+            <div id="self-name">This device</div>
+            <div id="self-id" class="muted"></div>
+          </div>
+          <form id="connect-form" class="connect-form">
+            <input id="connect-input" type="text" placeholder="Connect host:port" autocomplete="off" />
+            <button type="submit">Connect</button>
+          </form>
+        </div>
+        <div id="device-list" class="device-list"></div>
+      </aside>
+
+      <main class="chat-panel">
+        <div id="empty-state" class="empty-state">
+          <h2>No chat selected</h2>
+          <p>Open this app on another PC on the same LAN. It should appear here automatically.</p>
+        </div>
+
+        <section id="chat-view" class="chat-view hidden">
+          <header class="chat-header">
+            <div>
+              <h2 id="chat-title">Conversation</h2>
+              <div id="chat-subtitle" class="muted"></div>
+            </div>
+            <div id="file-hint" class="file-hint muted">Drop a file anywhere in this chat to send it.</div>
+          </header>
+
+          <div id="dropzone" class="dropzone hidden">Drop file to send</div>
+          <div id="messages" class="messages"></div>
+
+          <form id="composer" class="composer">
+            <label class="file-picker">
+              <input id="file-input" type="file" />
+              <span>Attach</span>
+            </label>
+            <input id="message-input" type="text" placeholder="Type a message" autocomplete="off" />
+            <div id="selected-file" class="selected-file muted hidden"></div>
+            <button type="submit">Send</button>
+          </form>
+        </section>
+      </main>
+    </div>
+
+    <template id="device-item-template">
+      <button class="device-item" type="button">
+        <div class="device-meta">
+          <div class="device-name-row">
+            <span class="device-name"></span>
+            <span class="status-dot"></span>
+          </div>
+          <div class="device-preview muted"></div>
+        </div>
+        <span class="badge hidden"></span>
+      </button>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
