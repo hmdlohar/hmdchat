@@ -371,6 +371,9 @@ async function sendFileToPeer(peer, localFile) {
   const formData = new FormData();
 
   formData.append("file", new Blob([fileBuffer], { type: localFile.mimeType }), localFile.originalName);
+  formData.append("originalName", localFile.originalName);
+  formData.append("mimeType", localFile.mimeType || "application/octet-stream");
+  formData.append("size", String(localFile.size || fileBuffer.length));
   formData.append("senderId", state.self.id);
   formData.append("senderName", state.self.name);
   formData.append("senderPort", String(state.self.port));

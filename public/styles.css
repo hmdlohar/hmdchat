@@ -20,6 +20,7 @@ body {
   font-family: "Segoe UI", sans-serif;
   background: radial-gradient(circle at top, #fff8ef, var(--bg) 55%);
   color: var(--text);
+  min-height: 100dvh;
 }
 
 button,
@@ -34,7 +35,7 @@ input {
 .app-shell {
   display: grid;
   grid-template-columns: 320px 1fr;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .sidebar {
@@ -140,6 +141,12 @@ input {
   gap: 8px;
 }
 
+.storage-fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .connect-form input,
 .storage-form input {
   width: 100%;
@@ -237,6 +244,7 @@ input {
   display: flex;
   flex-direction: column;
   min-width: 0;
+  min-height: 100dvh;
 }
 
 .empty-state {
@@ -249,8 +257,9 @@ input {
 .chat-view {
   display: grid;
   grid-template-rows: auto 1fr auto;
-  height: 100vh;
+  height: 100dvh;
   position: relative;
+  min-height: 0;
 }
 
 .chat-header {
@@ -263,12 +272,30 @@ input {
   gap: 12px;
 }
 
+.chat-header-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.mobile-back {
+  display: none;
+  align-self: flex-start;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.8);
+  color: var(--text);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+
 .messages {
   padding: 20px 24px;
   overflow: auto;
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
 }
 
 .dropzone {
@@ -356,6 +383,61 @@ input {
   gap: 12px;
   align-items: center;
   background: rgba(255, 255, 255, 0.5);
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 0px));
+  backdrop-filter: blur(10px);
+}
+
+.share-draft {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  padding: 12px;
+}
+
+.share-draft-body {
+  min-width: 0;
+}
+
+.share-draft-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+
+.share-draft-title,
+.share-draft-caption {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.share-draft-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.share-draft-actions button {
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: white;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.share-draft-actions .share-send-btn {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
 }
 
 .file-picker {
@@ -409,29 +491,117 @@ a {
 }
 
 @media (max-width: 840px) {
+  body {
+    overflow: hidden;
+  }
+
   .app-shell {
     grid-template-columns: 1fr;
+    min-height: 100dvh;
+    height: 100dvh;
   }
 
   .sidebar {
-    min-height: 40vh;
+    min-height: 100dvh;
+    overflow: auto;
+  }
+
+  .chat-panel {
+    min-height: 100dvh;
   }
 
   .chat-view {
-    height: auto;
-    min-height: 60vh;
+    height: 100dvh;
+    min-height: 100dvh;
   }
 
   .chat-header {
     align-items: start;
     flex-direction: column;
+    padding: 14px 16px;
   }
 
   .composer {
     grid-template-columns: 1fr;
+    gap: 10px;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom, 0px));
+    background: rgba(251, 250, 247, 0.95);
+  }
+
+  .share-draft {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .share-draft-actions {
+    width: 100%;
+  }
+
+  .share-draft-actions button {
+    flex: 1;
   }
 
   .message {
-    max-width: 88%;
+    max-width: 90%;
+    padding: 10px 12px;
+    border-radius: 16px;
+  }
+
+  .sidebar-header {
+    padding: 16px 14px 12px;
+    gap: 10px;
+  }
+
+  .sidebar-header h1 {
+    font-size: 28px;
+  }
+
+  .self-card,
+  .settings-open,
+  .device-item {
+    border-radius: 14px;
+  }
+
+  .device-list {
+    padding: 10px;
+    gap: 8px;
+  }
+
+  .device-item {
+    padding: 12px;
+  }
+
+  .chat-header-main h2 {
+    font-size: 20px;
+  }
+
+  .messages {
+    padding: 14px 12px;
+    gap: 10px;
+  }
+
+  .empty-state {
+    padding: 24px 18px;
+  }
+
+  .file-hint {
+    display: none;
+  }
+
+  .mobile-back {
+    display: inline-flex;
+  }
+
+  body.mobile-chat-open .sidebar {
+    display: none;
+  }
+
+  body.mobile-chat-open .chat-panel {
+    display: flex;
+    min-height: 100dvh;
+  }
+
+  body:not(.mobile-chat-open) .chat-panel {
+    display: none;
   }
 }

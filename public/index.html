@@ -31,7 +31,8 @@
 
         <section id="chat-view" class="chat-view hidden">
           <header class="chat-header">
-            <div>
+            <div class="chat-header-main">
+              <button id="mobile-back" class="mobile-back" type="button">Chats</button>
               <h2 id="chat-title">Conversation</h2>
               <div id="chat-subtitle" class="muted"></div>
             </div>
@@ -42,6 +43,7 @@
           <div id="messages" class="messages"></div>
 
           <form id="composer" class="composer">
+            <div id="share-draft" class="share-draft hidden"></div>
             <label class="file-picker">
               <input id="file-input" type="file" />
               <span>Attach</span>
@@ -67,9 +69,14 @@
           <button type="submit">Connect</button>
         </form>
         <form id="storage-form" class="storage-form">
-          <label class="storage-label" for="storage-input">Received files folder</label>
-          <input id="storage-input" type="text" placeholder="/path/to/folder" autocomplete="off" />
-          <button type="submit">Save folder</button>
+          <label class="storage-label" for="server-base-input">Runtime server URL</label>
+          <input id="server-base-input" type="text" placeholder="http://127.0.0.1:33445" autocomplete="off" />
+          <button type="submit" id="server-base-save">Save runtime URL</button>
+          <div class="storage-fieldset">
+            <label class="storage-label" for="storage-input">Received files folder</label>
+            <input id="storage-input" type="text" placeholder="/path/to/folder" autocomplete="off" />
+            <button type="submit">Save folder</button>
+          </div>
         </form>
       </div>
     </div>

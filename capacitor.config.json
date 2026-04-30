@@ -1,0 +1,12 @@
+{
+  "appId": "com.hmd.hmdchat.mobile",
+  "appName": "Hmd Chat",
+  "webDir": "public",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true
+  },
+  "server": {
+    "cleartext": true
+  }
+}

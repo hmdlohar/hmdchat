@@ -1,3 +1,13 @@
 node_modules
 .data/
 .codex
+dist/
+.android/
+
+# Capacitor Android generated build artifacts and local tooling state
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/*.iml

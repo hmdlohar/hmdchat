@@ -5,8 +5,11 @@ const state = {
   conversations: [],
   activePeerId: null,
   messagesByPeer: new Map(),
+  pendingShare: null,
   selectedFile: null,
-  dragDepth: 0
+  dragDepth: 0,
+  runtimeBaseUrl: "",
+  pollTimer: null
 };
 
 const els = {
@@ -18,18 +21,22 @@ const els = {
   connectForm: document.querySelector("#connect-form"),
   connectInput: document.querySelector("#connect-input"),
   storageForm: document.querySelector("#storage-form"),
+  serverBaseInput: document.querySelector("#server-base-input"),
   storageInput: document.querySelector("#storage-input"),
   deviceList: document.querySelector("#device-list"),
   emptyState: document.querySelector("#empty-state"),
   chatView: document.querySelector("#chat-view"),
   chatTitle: document.querySelector("#chat-title"),
   chatSubtitle: document.querySelector("#chat-subtitle"),
+  mobileBack: document.querySelector("#mobile-back"),
   fileHint: document.querySelector("#file-hint"),
   dropzone: document.querySelector("#dropzone"),
   messages: document.querySelector("#messages"),
   composer: document.querySelector("#composer"),
+  shareDraft: document.querySelector("#share-draft"),
   messageInput: document.querySelector("#message-input"),
   fileInput: document.querySelector("#file-input"),
+  filePicker: document.querySelector(".file-picker"),
   selectedFile: document.querySelector("#selected-file"),
   deviceItemTemplate: document.querySelector("#device-item-template")
 };
@@ -65,6 +72,42 @@ function activePeer() {
   return state.peers.find((peer) => peer.id === state.activePeerId) || null;
 }
 
+function isMobileViewport() {
+  return window.matchMedia("(max-width: 840px)").matches;
+}
+
+function isCapacitorRuntime() {
+  return Boolean(window.Capacitor?.isNativePlatform?.());
+}
+
+function getDefaultRuntimeBaseUrl() {
+  if (isCapacitorRuntime()) {
+    return window.localStorage.getItem("hmdchat.runtimeBaseUrl") || "http://127.0.0.1:33445";
+  }
+  return "";
+}
+
+function apiUrl(pathname) {
+  if (!state.runtimeBaseUrl) {
+    return pathname;
+  }
+  return `${state.runtimeBaseUrl}${pathname}`;
+}
+
+function fileUrl(messageId) {
+  return apiUrl(`/api/files/${encodeURIComponent(messageId)}`);
+}
+
+function websocketUrl() {
+  if (!state.runtimeBaseUrl) {
+    return `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`;
+  }
+
+  const runtimeUrl = new URL(state.runtimeBaseUrl);
+  const wsProtocol = runtimeUrl.protocol === "https:" ? "wss:" : "ws:";
+  return `${wsProtocol}//${runtimeUrl.host}`;
+}
+
 function getChatFromUrl() {
   return new URLSearchParams(window.location.search).get("chat");
 }
@@ -79,10 +122,18 @@ function setChatInUrl(peerId) {
   history.pushState({ chat: peerId || null }, "", url);
 }
 
+function syncMobileLayout() {
+  document.body.classList.toggle(
+    "mobile-chat-open",
+    isMobileViewport() && Boolean(state.activePeerId)
+  );
+}
+
 async function syncChatFromUrl() {
   const peerId = getChatFromUrl();
   if (!peerId) {
     state.activePeerId = null;
+    syncMobileLayout();
     renderSidebar();
     renderChatShell();
     return;
@@ -95,6 +146,7 @@ async function syncChatFromUrl() {
   }
 
   state.activePeerId = null;
+  syncMobileLayout();
   renderSidebar();
   renderChatShell();
 }
@@ -128,7 +180,7 @@ function setSelectedFile(file) {
 }
 
 async function fetchJson(url, options) {
-  const response = await fetch(url, options);
+  const response = await fetch(apiUrl(url), options);
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.error || `Request failed with ${response.status}`);
@@ -137,14 +189,17 @@ async function fetchJson(url, options) {
 }
 
 async function loadState() {
+  state.runtimeBaseUrl = getDefaultRuntimeBaseUrl();
   const payload = await fetchJson("/api/state");
   state.self = payload.self;
   state.settings = payload.settings;
   state.peers = payload.peers;
   state.conversations = payload.conversations;
+  state.pendingShare = payload.pendingShare || null;
   renderSelf();
   renderSettings();
   renderSidebar();
+  renderPendingShare();
   await syncChatFromUrl();
 }
 
@@ -182,7 +237,79 @@ function renderSelf() {
 }
 
 function renderSettings() {
+  els.serverBaseInput.value = state.runtimeBaseUrl || "";
   els.storageInput.value = state.settings?.receivedFilesDir || "";
+  els.storageInput.closest(".storage-fieldset")?.classList.toggle("hidden", isCapacitorRuntime());
+}
+
+function renderPendingShare() {
+  if (!els.shareDraft) {
+    return;
+  }
+
+  const pending = state.pendingShare;
+  if (!pending) {
+    els.shareDraft.classList.add("hidden");
+    els.shareDraft.innerHTML = "";
+    return;
+  }
+
+  const summary = pending.type === "file"
+    ? `${escapeHtml(pending.file?.originalName || "Shared file")}${
+        pending.file?.size ? ` • ${formatFileSize(pending.file.size)}` : ""
+      }`
+    : escapeHtml(pending.text || "Shared text");
+
+  const caption = pending.type === "file" && pending.text
+    ? `<div class="share-draft-caption">${escapeHtml(pending.text)}</div>`
+    : "";
+
+  els.shareDraft.innerHTML = `
+    <div class="share-draft-body">
+      <div class="share-draft-label">Shared from Android</div>
+      <div class="share-draft-title">${summary}</div>
+      ${caption}
+    </div>
+    <div class="share-draft-actions">
+      <button type="button" class="share-send-btn">Send</button>
+      <button type="button" class="share-clear-btn">Dismiss</button>
+    </div>
+  `;
+  els.shareDraft.classList.remove("hidden");
+
+  els.shareDraft.querySelector(".share-send-btn")?.addEventListener("click", async () => {
+    const peer = activePeer();
+    if (!peer) {
+      window.alert("Select a chat first.");
+      return;
+    }
+
+    try {
+      const payload = await fetchJson("/api/share/send", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ peerId: peer.id })
+      });
+      state.pendingShare = null;
+      rememberMessage(payload.message);
+      upsertConversationFromMessage(payload.message);
+      renderPendingShare();
+      renderSidebar();
+      renderMessages();
+    } catch (error) {
+      window.alert(error.message);
+    }
+  });
+
+  els.shareDraft.querySelector(".share-clear-btn")?.addEventListener("click", async () => {
+    try {
+      await fetchJson("/api/share/clear", { method: "POST" });
+      state.pendingShare = null;
+      renderPendingShare();
+    } catch (error) {
+      window.alert(error.message);
+    }
+  });
 }
 
 function openSettings() {
@@ -252,6 +379,7 @@ function renderSidebar() {
 
 async function selectPeer(peerId, options = { updateUrl: true }) {
   state.activePeerId = peerId;
+  syncMobileLayout();
   if (options.updateUrl) {
     setChatInUrl(peerId);
   }
@@ -281,11 +409,21 @@ async function selectPeer(peerId, options = { updateUrl: true }) {
   renderMessages();
 }
 
+function clearActivePeer() {
+  state.activePeerId = null;
+  setChatInUrl(null);
+  syncMobileLayout();
+  renderSidebar();
+  renderChatShell();
+}
+
 function renderChatShell() {
   const peer = activePeer();
   els.emptyState.classList.toggle("hidden", !!peer);
   els.chatView.classList.toggle("hidden", !peer);
-  els.fileHint.classList.toggle("hidden", !peer);
+  els.fileHint.classList.toggle("hidden", !peer || isCapacitorRuntime());
+  els.mobileBack?.classList.toggle("hidden", !isMobileViewport());
+  syncMobileLayout();
 
   if (!peer) {
     return;
@@ -316,17 +454,24 @@ function renderMessages() {
     }
 
     if (message.kind === "file" && message.file) {
-      const href = `/api/files/${encodeURIComponent(message.id)}`;
+      const href = fileUrl(message.id);
       const fileCard = document.createElement("div");
       fileCard.className = "file-card";
-      const actionsHtml =
-        message.direction === "incoming"
-          ? `
+      const incomingActions = isCapacitorRuntime()
+        ? `
+            <div class="file-actions">
+              <button type="button" class="open-btn">Open</button>
+            </div>
+          `
+        : `
             <div class="file-actions">
               <button type="button" class="save-as-btn primary">Save as</button>
               <button type="button" class="open-btn">Open</button>
             </div>
-          `
+          `;
+      const actionsHtml =
+        message.direction === "incoming"
+          ? incomingActions
           : message.deliveredAt
             ? `
               <div class="file-actions">
@@ -438,6 +583,9 @@ async function sendFile(peerId, file, caption) {
   formData.append("peerId", peerId);
   formData.append("caption", caption || "");
   formData.append("file", file);
+  formData.append("originalName", file.name || "upload.bin");
+  formData.append("mimeType", file.type || "application/octet-stream");
+  formData.append("size", String(file.size || 0));
 
   const payload = await fetchJson("/api/send/file", {
     method: "POST",
@@ -521,8 +669,16 @@ function bindConnectForm() {
 function bindStorageForm() {
   els.storageForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+    const runtimeBaseUrl = els.serverBaseInput.value.trim();
     const receivedFilesDir = els.storageInput.value.trim();
-    if (!receivedFilesDir) {
+    if (runtimeBaseUrl) {
+      window.localStorage.setItem("hmdchat.runtimeBaseUrl", runtimeBaseUrl.replace(/\/$/, ""));
+      state.runtimeBaseUrl = runtimeBaseUrl.replace(/\/$/, "");
+      await loadState();
+      connectSocket();
+    }
+
+    if (!receivedFilesDir || isCapacitorRuntime()) {
       return;
     }
 
@@ -622,7 +778,34 @@ function bindDragAndDrop() {
 }
 
 function connectSocket() {
-  const socket = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}`);
+  if (isCapacitorRuntime()) {
+    if (state.pollTimer) {
+      clearInterval(state.pollTimer);
+    }
+
+    state.pollTimer = window.setInterval(async () => {
+      try {
+        const payload = await fetchJson("/api/state");
+        state.self = payload.self;
+        state.settings = payload.settings;
+        state.peers = payload.peers;
+        state.conversations = payload.conversations;
+        state.pendingShare = payload.pendingShare || null;
+        if (state.activePeerId) {
+          await loadMessages(state.activePeerId);
+        }
+        renderSelf();
+        renderSettings();
+        renderSidebar();
+        renderChatShell();
+        renderPendingShare();
+      } catch (_error) {
+      }
+    }, 2500);
+    return;
+  }
+
+  const socket = new WebSocket(websocketUrl());
 
   socket.addEventListener("message", (event) => {
     const data = JSON.parse(event.data);
@@ -632,10 +815,12 @@ function connectSocket() {
       state.settings = data.payload.settings;
       state.peers = data.payload.peers;
       state.conversations = data.payload.conversations;
+      state.pendingShare = data.payload.pendingShare || null;
       renderSelf();
       renderSettings();
       renderSidebar();
       renderChatShell();
+      renderPendingShare();
       return;
     }
 
@@ -658,6 +843,7 @@ function connectSocket() {
 }
 
 bindComposer();
+els.mobileBack?.addEventListener("click", clearActivePeer);
 els.settingsOpen.addEventListener("click", openSettings);
 els.settingsClose.addEventListener("click", closeSettings);
 els.settingsModal.addEventListener("click", (event) => {
@@ -671,10 +857,12 @@ bindDragAndDrop();
 window.addEventListener("popstate", async () => {
   await syncChatFromUrl();
 });
+window.addEventListener("resize", syncMobileLayout);
 window.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
     closeSettings();
   }
 });
 await loadState();
+syncMobileLayout();
 connectSocket();

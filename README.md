@@ -61,6 +61,94 @@ npm run desktop
 
 Electron starts local server, waits for `/health`, then loads `http://127.0.0.1:33445` in main window.
 
+## Start Capacitor mobile shell
+
+This repo now includes a Capacitor scaffold for Android. It packages the current web UI into a mobile shell, but the current Node desktop server is not yet replaced with a mobile-native runtime.
+
+Install JS dependencies:
+
+```bash
+npm install
+```
+
+Initialize Android project:
+
+```bash
+npm run mobile:init:android
+npm run mobile:sync
+```
+
+## Android build in Docker
+
+No local Android SDK required. Build inside Docker:
+
+```bash
+npm run mobile:docker:build
+```
+
+Open an interactive Android build shell if needed:
+
+```bash
+npm run mobile:docker:shell
+```
+
+Recommended first-run flow:
+
+```bash
+npm run mobile:docker:shell
+```
+
+Then inside container:
+
+```bash
+if [ ! -d node_modules ]; then npm install; fi
+if [ ! -d android ]; then npx cap add android; fi
+npx cap sync android
+cd android
+./gradlew assembleDebug
+```
+
+Docker shell/build now use persistent Docker volumes for:
+
+- Gradle cache
+- container home
+- npm cache
+
+So Gradle wrapper and dependency downloads should not restart from zero every build.
+Build scripts also create and reuse a stable repo-local debug keystore at `.android/debug.keystore`, so debug APK identity stays consistent across installs.
+
+Default image:
+
+```bash
+mingc/android-build-box:latest
+```
+
+Override if needed:
+
+```bash
+ANDROID_BUILD_IMAGE=mohamedhelmy/android-docker npm run mobile:docker:build
+```
+
+Expected debug APK:
+
+```bash
+android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+Install to connected Android device:
+
+```bash
+npm run mobile:android:install
+```
+
+If an older debug build was signed with a different key, installer auto-uninstalls old app and retries once. After switching to the stable repo debug keystore, this should be one-time only.
+
+Select specific device:
+
+```bash
+ADB_SERIAL=<device-serial> npm run mobile:android:install
+```
+
 ## Build packages
 
 Add icons first:
@@ -119,6 +207,7 @@ PORT=33446 DATA_DIR=.data-b DEVICE_NAME=beta SEED_PEERS=127.0.0.1:33445 npm star
 - no message deletion/editing
 - Electron shell is minimal host only
 - file moves use path prompt, not native folder picker
+- Capacitor shell exists, but mobile runtime still needs native/mobile replacement for current desktop Node server behavior
 
 ## Next useful steps
 
