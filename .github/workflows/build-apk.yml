@@ -37,5 +37,5 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: Hmd Chat ${{ steps.version.outputs.tag }}
           files: android/app/build/outputs/apk/debug/app-debug.apk
-          draft: true
+          draft: false
           fail_on_unmatched_files: false
