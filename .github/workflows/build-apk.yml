@@ -1,0 +1,39 @@
+name: Build .apk
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [release]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build Android APK (Docker)
+        run: bash scripts/mobile/android-build.sh
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: apk-package
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Extract version
+        id: version
+        run: echo "tag=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Hmd Chat ${{ steps.version.outputs.tag }}
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          draft: true
+          fail_on_unmatched_files: false

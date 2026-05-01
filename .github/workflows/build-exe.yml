@@ -1,0 +1,39 @@
+name: Build .exe
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [release]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npm run dist:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exe-package
+          path: dist/*.exe
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: echo "tag=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: Hmd Chat ${{ steps.version.outputs.tag }}
+          files: dist/*.exe
+          draft: true
+          fail_on_unmatched_files: false
