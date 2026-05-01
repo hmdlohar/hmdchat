@@ -33,6 +33,7 @@ docker run --rm \
     fi
     npx cap sync android
     cd android
+    chmod +x gradlew
     ./gradlew assembleDebug
   '
 
