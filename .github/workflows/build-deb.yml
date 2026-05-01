@@ -27,7 +27,7 @@ jobs:
 
       - name: Extract version
         id: version
-        run: echo "tag=v$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: echo "tag=v$(node -p 'require(\"./package.json\").version')" >> "$GITHUB_OUTPUT"
 
       - uses: softprops/action-gh-release@v2
         with:
