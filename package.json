@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",
-  "author": "hmd",
+  "author": "hmd <hmd@hmdchat.local>",
   "license": "UNLICENSED",
   "productName": "Hmd Chat",
   "description": "Local-first desktop chat draft with mDNS discovery, text, and file transfer.",
